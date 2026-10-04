@@ -1,15 +1,36 @@
 cmake_minimum_required(VERSION 3.10)
-project(Demo1)
+project(Demo2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(OpenCV_DIR "/usr/lib/x86_64-linux-gnu/cmake/opencv4")
 find_package(OpenCV REQUIRED)
 
-message(STATUS "OpenCV 版本: ${OpenCV_VERSION}")
-message(STATUS "OpenCV 头文件: ${OpenCV_INCLUDE_DIRS}")
+set(GALAXY_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_lib/Galaxy_camera")
+find_library(GALAXY_LIBRARY
+	NAMES gxiapi
+	PATHS "${GALAXY_SDK_DIR}/lib/x86_64"
+	NO_DEFAULT_PATH
+)
 
-add_executable(demo1 demo1.cpp)
+if(NOT GALAXY_LIBRARY)
+	message(FATAL_ERROR "Galaxy SDK library libgxiapi.so not found in ${GALAXY_SDK_DIR}/lib/x86_64")
+endif()
 
-target_include_directories(demo1 PRIVATE ${OpenCV_INCLUDE_DIRS})
-target_link_libraries(demo1 PRIVATE ${OpenCV_LIBS})
+add_executable(demo2 demo2.cpp)
+
+target_include_directories(demo2 PRIVATE
+	"${GALAXY_SDK_DIR}/inc"
+	${OpenCV_INCLUDE_DIRS}
+)
+
+target_link_libraries(demo2 PRIVATE
+	${OpenCV_LIBS}
+	"${GALAXY_LIBRARY}"
+)
+
+set_target_properties(demo2 PROPERTIES
+	BUILD_RPATH "${GALAXY_SDK_DIR}/lib/x86_64"
+)
+
