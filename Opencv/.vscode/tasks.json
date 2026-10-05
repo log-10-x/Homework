@@ -1,0 +1,34 @@
+{
+    "tasks": [
+        {
+            "type": "shell",
+            "label": "CMake: 构建项目",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "${workspaceFolder}/build"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "detail": "通过 CMake 构建项目并自动使用 OpenCV 配置。"
+        },
+        {
+            "type": "shell",
+            "label": "运行 main",
+            "command": "${workspaceFolder}/build/main",
+            "dependsOn": "CMake: 构建项目",
+            "dependsOrder": "sequence",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": []
+        }
+    ],
+    "version": "2.0.0"
+}
