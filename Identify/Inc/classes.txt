@@ -1,0 +1,4 @@
+blue_panel_1
+blue_panel_2
+red_panel_1
+red_panel_2
