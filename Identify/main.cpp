@@ -35,41 +35,99 @@ PGX_FRAME_DATA_EX pFrameBuffer;
 std::string Classnames = "Inc/classes.txt";
 
 
-// struct LetterboxInfo
-// {
-//     float scale;
-//     int padX;
-//     int padY;
-// };
+static bool FrameToBGR(PGX_FRAME_DATA_EX pFrame, cv::Mat& outBGR)
+{
+    const int  w   = pFrame->nWidth;
+    const int  h   = pFrame->nHeight;
+    const int64_t fmt = pFrame->nPixelFormat;
+    void* pBuf = (void*)pFrame->pImgBuf;
+    if (!pBuf || w <= 0 || h <= 0) return false;
 
-// cv::Mat letterbox(const cv::Mat& src, const cv::Size& newShape, LetterboxInfo& info,
-//                   cv::Scalar color = cv::Scalar(114, 114, 114))
-// {
-//     int w = src.cols, h = src.rows;
-//     float r = std::min(newShape.width / (float)w, newShape.height / (float)h);
-//     int newW = (int)std::round(w * r);
-//     int newH = (int)std::round(h * r);
+    switch (fmt)
+    {
+    // -------------- 黑白 8bit --------------
+    case GX_PIXEL_FORMAT_MONO8:
+    {
+        cv::Mat gray(h, w, CV_8UC1, pBuf);
+        cv::cvtColor(gray, outBGR, cv::COLOR_GRAY2BGR);
+        return true;
+    }
 
-//     cv::Mat resized;
-//     if (w != newW || h != newH)
-//         cv::resize(src, resized, cv::Size(newW, newH), 0, 0, cv::INTER_LINEAR);
-//     else
-//         resized = src;
+    // -------------- Bayer 8bit --------------
+    case GX_PIXEL_FORMAT_BAYER_RG8:
+    case GX_PIXEL_FORMAT_BAYER_GR8:
+    case GX_PIXEL_FORMAT_BAYER_GB8:
+    case GX_PIXEL_FORMAT_BAYER_BG8:
+    {
+        DX_PIXEL_COLOR_FILTER bayerType = BAYERRG;
+        switch (fmt) {
+            case GX_PIXEL_FORMAT_BAYER_RG8: bayerType = BAYERRG; break;
+            case GX_PIXEL_FORMAT_BAYER_GR8: bayerType = BAYERGR; break;
+            case GX_PIXEL_FORMAT_BAYER_GB8: bayerType = BAYERGB; break;
+            case GX_PIXEL_FORMAT_BAYER_BG8: bayerType = BAYERBG; break;
+        }
+        cv::Mat rgb(h, w, CV_8UC3);
+        // DxRaw8toRGB24 输出为 RGB24，需要再转 BGR
+        VxInt32 dx = DxRaw8toRGB24(pBuf, rgb.data,
+                                   (VxUint32)w, (VxUint32)h,
+                                   RAW2RGB_NEIGHBOUR, bayerType, false);
+        if (dx != DX_OK) return false;
+        cv::cvtColor(rgb, outBGR, cv::COLOR_RGB2BGR);
+        return true;
+    }
 
-//     int dw = newShape.width - newW;
-//     int dh = newShape.height - newH;
-//     int top = dh / 2, bottom = dh - top;
-//     int left = dw / 2, right = dw - left;
+    // -------------- Bayer 非8bit（先降位再插值） --------------
+    case GX_PIXEL_FORMAT_BAYER_RG10:
+    case GX_PIXEL_FORMAT_BAYER_GR10:
+    case GX_PIXEL_FORMAT_BAYER_GB10:
+    case GX_PIXEL_FORMAT_BAYER_BG10:
+    case GX_PIXEL_FORMAT_BAYER_RG12:
+    case GX_PIXEL_FORMAT_BAYER_GR12:
+    case GX_PIXEL_FORMAT_BAYER_GB12:
+    case GX_PIXEL_FORMAT_BAYER_BG12:
+    {
+        cv::Mat raw8(h, w, CV_8UC1);
+        DX_VALID_BIT validBit =
+            (fmt == GX_PIXEL_FORMAT_BAYER_RG12 || fmt == GX_PIXEL_FORMAT_BAYER_GR12 ||
+             fmt == GX_PIXEL_FORMAT_BAYER_GB12 || fmt == GX_PIXEL_FORMAT_BAYER_BG12)
+                ? DX_BIT_4_11 : DX_BIT_2_9;
 
-//     cv::Mat out;
-//     cv::copyMakeBorder(resized, out, top, bottom, left, right,
-//                        cv::BORDER_CONSTANT, color);
+        VxInt32 dx = DxRaw16toRaw8(pBuf, raw8.data,
+                                   (VxUint32)w, (VxUint32)h, validBit);
+        if (dx != DX_OK) return false;
 
-//     info.scale = r;
-//     info.padX = left;
-//     info.padY = top;
-//     return out;
-// }
+        DX_PIXEL_COLOR_FILTER bayerType = BAYERRG;
+        if (fmt == GX_PIXEL_FORMAT_BAYER_RG10 || fmt == GX_PIXEL_FORMAT_BAYER_RG12) bayerType = BAYERRG;
+        if (fmt == GX_PIXEL_FORMAT_BAYER_GR10 || fmt == GX_PIXEL_FORMAT_BAYER_GR12) bayerType = BAYERGR;
+        if (fmt == GX_PIXEL_FORMAT_BAYER_GB10 || fmt == GX_PIXEL_FORMAT_BAYER_GB12) bayerType = BAYERGB;
+        if (fmt == GX_PIXEL_FORMAT_BAYER_BG10 || fmt == GX_PIXEL_FORMAT_BAYER_BG12) bayerType = BAYERBG;
+
+        cv::Mat rgb(h, w, CV_8UC3);
+        dx = DxRaw8toRGB24(raw8.data, rgb.data,
+                           (VxUint32)w, (VxUint32)h,
+                           RAW2RGB_NEIGHBOUR, bayerType, false);
+        if (dx != DX_OK) return false;
+        cv::cvtColor(rgb, outBGR, cv::COLOR_RGB2BGR);
+        return true;
+    }
+
+    // -------------- 已经是 RGB/BGR --------------
+    case GX_PIXEL_FORMAT_BGR8:
+        outBGR = cv::Mat(h, w, CV_8UC3, pBuf).clone();
+        return true;
+    case GX_PIXEL_FORMAT_RGB8:
+    {
+        cv::Mat rgb(h, w, CV_8UC3, pBuf);
+        cv::cvtColor(rgb, outBGR, cv::COLOR_RGB2BGR);
+        return true;
+    }
+
+    default:
+        std::cerr << "Unsupported pixel format: 0x"
+                  << std::hex << fmt << std::dec << std::endl;
+        return false;
+    }
+}
 namespace
 {
 DX_VALID_BIT getValidBits(GX_PIXEL_FORMAT_ENTRY pixelFormat)
@@ -201,7 +259,8 @@ void drawTraditionalDetectionBoxes(cv::Mat& image)
         return values[index];
     };
 
-    const size_t minimumColorPixels = image.total() / 100;
+    const size_t minimumColorPixels =
+        std::max<size_t>(100, image.total() / 2000);
     bool detected = false;
     for (const cv::Mat& boardMask : boardMasks)
     {
@@ -227,6 +286,15 @@ void drawTraditionalDetectionBoxes(cv::Mat& image)
         const int top = percentile(yCoordinates, 0.001);
         const int bottom = percentile(yCoordinates, 0.95);
         if (right <= left || bottom <= top)
+        {
+            continue;
+        }
+
+        const double boxArea =
+            static_cast<double>(right - left) * (bottom - top);
+        const double colorDensity =
+            static_cast<double>(boardPixels.size()) / boxArea;
+        if (colorDensity < 0.02)
         {
             continue;
         }
@@ -443,98 +511,9 @@ int main(int argc, char* argv[])
                     }
                     if(!displayImage.empty())
                     {
-                        // // ---------- 1. 预处理 ----------
-                        // LetterboxInfo lbInfo;
-                        // cv::Mat input = letterbox(displayImage, cv::Size(640, 640), lbInfo);
-
-                        // cv::Mat blob;
-                        // cv::dnn::blobFromImage(input, blob, 1.0 / 255.0,
-                        //                     cv::Size(640, 640), cv::Scalar(), true, false);
-                        // net.setInput(blob);
-
-                        // // ---------- 2. 前向传播 ----------
-                        // std::vector<cv::Mat> outputs;
-                        // net.forward(outputs, net.getUnconnectedOutLayersNames());
-
-                        // // ---------- 3. 解析输出 ----------
-                        // // YOLOv8 输出: [1, 84, 8400]  => 84 = 4(box) + 80(classes)
-                        // cv::Mat out = outputs[0];
-                        // cv::Mat pred = out.reshape(1, out.size[1]);   // [84, 8400]
-                        // cv::transpose(pred, pred);                    // [8400, 84]
-
-                        // const int rows = pred.rows;
-                        // const int dims = pred.cols;
-                        // const int numClasses = dims - 4;
-
-                        // std::vector<cv::Rect> boxes;
-                        // std::vector<float> confidences;
-                        // std::vector<int> classIds;
-
-                        // for (int i = 0; i < rows; ++i)
-                        // {
-                        //     const float* row = pred.ptr<float>(i);
-
-                        //     // 找最大类别分数
-                        //     int bestId = 0;
-                        //     float bestScore = 0.f;
-                        //     for (int c = 0; c < numClasses; ++c)
-                        //     {
-                        //         if (row[4 + c] > bestScore)
-                        //         {
-                        //             bestScore = row[4 + c];
-                        //             bestId = c;
-                        //         }
-                        //     }
-                        //     if (bestScore < 0.25f) continue;   // 置信度阈值
-
-                        //     // 中心点 + 宽高 -> 原图坐标
-                        //     float cx = row[0], cy = row[1], bw = row[2], bh = row[3];
-                        //     float x = (cx - bw / 2.f - lbInfo.padX) / lbInfo.scale;
-                        //     float y = (cy - bh / 2.f - lbInfo.padY) / lbInfo.scale;
-                        //     float w = bw / lbInfo.scale;
-                        //     float h = bh / lbInfo.scale;
-
-                        //     // 裁剪到图像范围内
-                        //     x = std::max(0.f, std::min(x, (float)displayImage.cols - 1));
-                        //     y = std::max(0.f, std::min(y, (float)displayImage.rows - 1));
-                        //     w = std::min(w, displayImage.cols - x);
-                        //     h = std::min(h, displayImage.rows - y);
-
-                        //     boxes.emplace_back(cv::Rect((int)x, (int)y, (int)w, (int)h));
-                        //     confidences.push_back(bestScore);
-                        //     classIds.push_back(bestId);
-                        // }
-
-                        // // ---------- 4. NMS 去重 ----------
-                        // std::vector<int> indices;
-                        // cv::dnn::NMSBoxes(boxes, confidences, 0.25f, 0.45f, indices);
-
-                        // // ---------- 5. 画框 ----------
-                        // for (int idx : indices)
-                        // {
-                        //     const cv::Rect& box = boxes[idx];
-                        //     cv::rectangle(displayImage, box, cv::Scalar(0, 255, 0), 2);
-
-                        //     std::string label = (classIds[idx] < (int)classNames.size())
-                        //                         ? classNames[classIds[idx]]
-                        //                         : std::to_string(classIds[idx]);
-                        //     label += " " + cv::format("%.2f", confidences[idx]);
-
-                        //     int baseLine = 0;
-                        //     cv::Size tsize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX,
-                        //                                     0.5, 1, &baseLine);
-                        //     int top = std::max(box.y, tsize.height + 5);
-                        //     cv::rectangle(displayImage,
-                        //                 cv::Point(box.x, top - tsize.height - 5),
-                        //                 cv::Point(box.x + tsize.width, top),
-                        //                 cv::Scalar(0, 255, 0), cv::FILLED);
-                        //     cv::putText(displayImage, label,
-                        //                 cv::Point(box.x, top - 3),
-                        //                 cv::FONT_HERSHEY_SIMPLEX, 0.5,
-                        //                 cv::Scalar(0, 0, 0), 1);
-                        // }
-
                         drawTraditionalDetectionBoxes(displayImage);
+                        cv::Mat mat;
+                        FrameToBGR(pFrameBuffer, mat);
                         cv::imshow("Window", displayImage);
                     }
                     if(cv::waitKey(1) == 27)

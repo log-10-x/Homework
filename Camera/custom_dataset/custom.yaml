@@ -1,0 +1,12 @@
+path: /home/robot/Desktop/Homework/custom_dataset  # 数据集根目录（绝对路径）
+train: images/train               # 相对 path 的训练集路径
+val: images/val                   # 相对 path 的验证集路径
+
+nc: 10                             # 类别数量
+				   # 类别名称列表
+names: ['blue_panel_1',
+	'blue_panel_2',
+	'red_panel_1',
+	'red_panel_2']              
+
+	

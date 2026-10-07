@@ -4,9 +4,8 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "~/Download/Galaxy_Linux-x86_Gige-U3_32bits-64bits_2.6.2606.9251/Galaxy_Linux-x86_Gige-U3_32bits-64bits_2.6.2606.9251/Galaxy_camera/inc",
-                "/usr/include/opencv4",
-                "/usr/include/opencv4/opencv2"
+                "/usr/local/include/opencv4",
+                "${workspaceFolder}/Inc"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/g++",
